@@ -1,0 +1,30 @@
+[
+    {
+        "id": 1,
+        "allow_host": "www.google.com",
+        "cache_expired": 15,
+        "time_start": "09",
+        "time_end": "20"
+    },
+    {
+        "id": 2,
+        "allow_host": "www.bing.com",
+        "cache_expired": 15,
+        "time_start": "08",
+        "time_end": "20"
+    },
+    {
+        "id": 3,
+        "allow_host": "oosc.online",
+        "cache_expired": 15,
+        "time_start": "01",
+        "time_end": "24"
+    },
+    {
+        "id": 4,
+        "allow_host": "example.com",
+        "cache_expired": 15,
+        "time_start": "01",
+        "time_end": "20"
+    }
+]
