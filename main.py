@@ -41,12 +41,12 @@ def CreateServer(host: str, port: int):
         tcpSerSock.listen(MAX_CONNECTION)
     except TimeoutError as error:
         print(error)
-        print("Creating server failed !")
+        print("Creating server failed.")
         time.sleep(2)
         exit(0)
     except ConnectionError as error:
         print(error)
-        print("Creating server failed !")
+        print("Creating server failed.")
         time.sleep(2)
         exit(0)
     return tcpSerSock
@@ -58,12 +58,12 @@ def CreateClient(host: str, post: int):
         tcpCliSock.connect((host, post))
     except TimeoutError as error:
         print(error)
-        print("Creating client failed !")
+        print("Creating client failed.")
         time.sleep(2)
         exit(0)
     except ConnectionError as error:
         print(error)
-        print("Creating client failed !")
+        print("Creating client failed.")
         time.sleep(2)
         exit(0)
     return tcpCliSock
@@ -212,54 +212,70 @@ def MainProcess(tcpCliSock: socket):
     print(req)
     for key, value in req.items():
         print(key, ":", value)
-    if req["Method"] != "GET" and req["Method"] != "POST" and req["Method"] != "HEAD":
+    allow_method = ["GET", "POST", "HEAD"]
+    if req["Method"] not in allow_method:
         NotFound(tcpCliSock)
         tcpCliSock.close()
         return
-
-    # Localhost
-    # check = False
-    # white_list = WhiteListing()
-
-    # for list in white_list:
-    #     if list == req["Filename"]:
-    #         check = True
-
-    # if check == False:
-    #     NotFound(tcpCliSock)
-    #     tcpCliSock.close()
-    #     return
-
-    # if TouchGrass(req["Filename"]) == -1 or TouchGrass(req["Filename"]) == 1:
-    #     NotFound(tcpCliSock)
-    #     tcpCliSock.close()
-    #     return
-
     check = False
     white_list = WhiteListing()
+    if "localhost" in message.decode("ISO-8859-1"):
+        for list in white_list:
+            if list == req["Filename"]:
+                check = True
 
-    for list in white_list:
-        if list == req["Host"]:
-            check = True
+        if check is False:
+            NotFound(tcpCliSock)
+            tcpCliSock.close()
+            return
 
-    if check is False:
-        NotFound(tcpCliSock)
+        if TouchGrass(req["Filename"]) == -1:
+            print("You don't currently have permission to access this page.")
+            NotFound(tcpCliSock)
+            tcpCliSock.close()
+            return
+        elif TouchGrass(req["Filename"]) == 1:
+            print("This page isn't in working hours")
+            NotFound(tcpCliSock)
+            tcpCliSock.close()
+            return
+        c = CreateClient(req["Host"], HTTP_PORT)
+        c.send(message)
+        response = readResponse(c)
+        print(response)
+        tcpCliSock.send(response)
+
         tcpCliSock.close()
-        return
+        c.close()
+    else:
+        for list in white_list:
+            if list == req["Host"]:
+                check = True
 
-    if TouchGrass(req["Host"]) == -1 or TouchGrass(req["Host"]) == 1:
-        NotFound(tcpCliSock)
+        if check is False:
+            NotFound(tcpCliSock)
+            tcpCliSock.close()
+            return
+
+        if TouchGrass(req["Host"]) == -1:
+            print("You don't currently have permission to access this page.")
+            NotFound(tcpCliSock)
+            tcpCliSock.close()
+            return
+        elif TouchGrass(req["Host"]) == 1:
+            print("This page isn't in working hours")
+            NotFound(tcpCliSock)
+            tcpCliSock.close()
+            return
+
+        c = CreateClient(req["Host"], HTTP_PORT)
+        c.send(message)
+        response = readResponse(c)
+        print(response)
+        tcpCliSock.send(response)
+
         tcpCliSock.close()
-        return
-
-    c = CreateClient(req["Host"], HTTP_PORT)
-    c.send(message)
-    response = readResponse(c)
-    print(response)
-    tcpCliSock.send(response)
-
-    tcpCliSock.close()
-    c.close()
+        c.close()
 
 
 def main():
@@ -276,7 +292,7 @@ def main():
             threadsocket.join()
         except KeyboardInterrupt:
             print()
-            print("Disconnected !")
+            print("Disconnected.")
             tcpSerSock.close()
             break
 
