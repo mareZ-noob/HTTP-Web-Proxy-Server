@@ -47,5 +47,12 @@
         "cache_expired": 15,
         "time_start": "01",
         "time_end": "20"
+    },
+    {   
+        "id": 8,
+        "allow_host": "arduino.vn",
+        "cache_expired": 15,
+        "time_start": "01",
+        "time_end": "24"
     }
 ]

@@ -1,5 +1,4 @@
 import codecs
-import hashlib
 import json
 import os
 import socket
@@ -75,7 +74,7 @@ def NotFound(tcpSock: socket):
         data = f.read()
     except IOError:
         data = b"403 Not Found"
-    header = b"HTTP/1.1 403 Not Found\r\n\r\n"
+    header = b"HTTP/1.1 403 Not Found\r\n"
     res = header + data + b"\r\n\r\n"
     tcpSock.send(res)
 
@@ -96,14 +95,14 @@ def CheckWebsite(web: str):
     # Check if web in config file
     check = -1
     for data in JSON_DATAS:
-        if data["allow_host"] == web:
+        if data["allow_host"] in web:
             check = 1
     if check == -1:
         return check
 
     flag = 1  # 1 -> Deactivate server | 0 -> Activate server
     for data in JSON_DATAS:
-        if data["allow_host"] == web:
+        if data["allow_host"] in web:
             time_start = str(data["time_start"])
             time_end = str(data["time_end"])
             if time_start <= CURRENT_TIME and CURRENT_TIME <= time_end:
@@ -113,50 +112,135 @@ def CheckWebsite(web: str):
 
 
 def parseRequest(message: str):
-    protocol = "http"
-    file_extension = "None"
+    protocol = ""
+    if message.find("http") != -1:
+        protocol = "http"
 
     method = message.split("\r\n")[0].split()[0]
     url = message.split("\r\n")[0].split()[1]
-    if url.split(".")[-1] in SUPPORTED_IMAGE_EXTENSIONS:
-        file_extension = url.split(".")[-1]
     version = message.split("\r\n")[0].split()[2]
     host = message.split("\r\n")[1].split()[1]
-
+    path = webServer = tmp = filename = ""
+    if url.find("://") != -1:
+        path = url.partition("://")[2]
+        webServer, tmp, file = path.partition("/")
+        filename = "/" + file
     return {
         "Method": method,
         "Protocol": protocol,
         "Url": url,
-        "Image Extension": file_extension,
         "Version": version,
         "Host": host,
+        "File": filename,
     }
 
 
-def CacheExpiredList():
-    CacheList = []
-    for file in os.listdir(CACHE_FOLDER_PATH):
-        modifyTime = datetime.fromtimestamp(
-            os.path.getmtime(os.path.join(CACHE_DIRECTORY, file))
-        )
+def saveCache(message: str, response: bytes):
+    req = parseRequest(message)
+    check = False
+    for img in SUPPORTED_IMAGE_EXTENSIONS:
+        if img in req["File"]:
+            check = True
 
-        if CURRENT_DATE_TIME - modifyTime > CACHE_EXPIRATION_TIME:
-            CacheList.append(file)
-    print(CacheList)
-    return CacheList
+    if check is False:
+        return
+    filePath = req["Host"] + req["File"]
+    imgPath = os.path.join(CACHE_FOLDER_PATH, filePath)
+    # Image extensions to .dat
+    filename = os.path.basename(imgPath)
+    httpHeaderFile = filename.replace(filename.split(".")[-1], "") + "dat"
+    httpHeaderPath = imgPath.replace(filename, httpHeaderFile)
+
+    folder = imgPath.replace("/" + filename, "")
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    httpHeader, EOL, image = response.decode("ISO-8859-1").partition("\r\n\r\n")
+
+    with open(file=httpHeaderPath, mode="wb") as f:
+        f.write(httpHeader.encode("ISO-8859-1"))
+    with open(file=imgPath, mode="wb") as f:
+        f.write(image.encode("ISO-8859-1"))
+
+
+def loadCache(message: str):
+    req = parseRequest(message)
+    check = False
+    for img in SUPPORTED_IMAGE_EXTENSIONS:
+        if img in req["File"]:
+            check = True
+
+    if check is False:
+        return False, b""
+    
+    filePath = req["Host"] + req["File"]
+    imgPath = os.path.join(CACHE_FOLDER_PATH, filePath)
+    # Image extensions to .dat
+    filename = os.path.basename(imgPath)
+    httpHeaderFile = filename.replace(filename.split(".")[-1], "") + "dat"
+    httpHeaderPath = imgPath.replace(filename, httpHeaderFile)
+
+    image = httpHeader = b""
+    if os.path.exists(imgPath) is False:
+        return False, image
+    if os.path.exist(httpHeaderPath) is False:
+        return False, httpHeader
+    modifyTime = datetime.fromtimestamp(os.path.getmtime(imgPath))
+    if CURRENT_DATE_TIME - modifyTime > CACHE_EXPIRATION_TIME:
+        return False, b""
+
+    with open(imgPath, "rb") as f:
+        image = f.read()
+    with open(httpHeaderPath, "rb") as f:
+        httpHeader = f.read()
+    
+    return True, image + "\r\n\r\n" + httpHeader
+
+def handleMethod(message: bytes):
+    # Load from cache
+    if loadCache(message.decode("ISO-8859-1"))[0]:
+        print("Cache loads successfully")
+        return loadCache(message.decode("ISO-8859-1"))[1]
+    else:
+        print("Cache Expired!")
+
+    req = parseRequest(message.decode("ISO-8859-1"))
+    request = message.decode("ISO-8859-1")
+    # Use Connection: close 
+    if message.decode("ISO-8859-1").find("chunked") != -1:
+        request = request + "\r\nConnection: close\r\n"
+
+        # Connect to web server
+        webServerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        webServerSock.connect((req["Host"], HTTP_PORT))
+        webServerSock.send(request.encode())
+        blocks = []
+        while True:
+            mess = webServerSock.recv(MAX_RECEIVE)
+            if not mess:
+                break
+            blocks.append(mess)
+        response = b"".join(blocks)
+
+        print("New cache")
+        saveCache(message.decode("ISO-8859-1"), response)
+        webServerSock.close()
+        return response
+    else:
+        # Use Connection: keep-alive    
+        print("Transfer-Encoding: chunked")
+        request = request + "\r\nConnection: close\r\n"
 
 
 def MainProcess(tcpCliSock: socket):
     # Read a request
-    message = tcpCliSock.recv(1000000)
+    message = tcpCliSock.recv(MAX_RECEIVE)
 
-    # print(message.decode("ISO-8859-1"))
     if message == b"":
         tcpCliSock.close()
         return
 
     req = parseRequest(message.decode("ISO-8859-1"))
-    # # print(req)
     for key, value in req.items():
         print(key, ":", value)
 
@@ -176,53 +260,9 @@ def MainProcess(tcpCliSock: socket):
         tcpCliSock.close()
         return
 
-    filename = hashlib.sha224(req["Url"].encode("ISO-8859-1")).hexdigest()
-    image_path = os.path.join(CACHE_FOLDER_PATH, os.path.basename(filename))
-    if req["Image Extension"] in SUPPORTED_IMAGE_EXTENSIONS:
-        if os.path.exists(image_path):
-            # If the image is in the cache, serve it directly
-            with open(image_path, "rb") as image_file:
-                image_data = image_file.read()
-            file_extension = req["Image Extension"]
-            header = f"HTTP/1.1 200 OK\r\nContent-Type: image/{file_extension}\r\n\r\n"
-            tcpCliSock.send(header.encode("ISO-8859-1") + image_data)
-        else:
-            c = CreateClient(req["Host"], HTTP_PORT)
-            c.send(message)
-            response = b""
-            while True:
-                response = c.recv(MAX_RECEIVE)
-                if not response:
-                    break
-                tcpCliSock.send(response)
-
-            with open(image_path, "wb") as image_file:
-                image_file.write(response)
-
-            tcpCliSock.send(response)
-
-            c.close()
-    else:
-        # tmp = message.decode("ISO-8859-1").split("\r\n")[2]
-        # message = message.decode("ISO-8859-1").replace(tmp + "\r\n", "")
-
-        # tmp1 = message.split("\r\n")[4]
-        # message = message.replace(tmp1 + "\r\n", "")
-        # print()
-        # print(message)
-
-        c = CreateClient(req["Host"], HTTP_PORT)
-        c.send(message)
-        response = b""
-        while True:
-            response = c.recv(MAX_RECEIVE)
-            if not response:
-                break
-            tcpCliSock.send(response)
-
-        tcpCliSock.send(response)
-
-        c.close()
+    response = handleMethod(message)
+    tcpCliSock.sendall(response)
+    tcpCliSock.close()
 
 
 def main():
@@ -242,6 +282,7 @@ def main():
 
     while True:
         try:
+            # Create client to server
             tcpCliSock, addr = tcpSerSock.accept()
             print()
             print("Received connection from IP: %s - Port: %d:" % (addr[0], addr[1]))
