@@ -60,7 +60,7 @@ def CreateClient(host: str, post: int):
     try:
         tcpCliSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcpCliSock.connect((host, post))
-    except (TimeoutError, ConnectionError) as error:
+    except (TimeoutError, ConnectionError, BrokenPipeError) as error:
         print(error)
         print("Creating client failed.")
         exit(0)
@@ -72,7 +72,8 @@ def NotFound(tcpSock: socket):
     try:
         f = open(NOT_FOUND_PAGE, "rb")
         data = f.read()
-    except IOError:
+    except (IOError, FileNotFoundError) as error:
+        print(error)
         data = b"403 Not Found"
     header = b"HTTP/1.1 403 Not Found\r\n"
     res = header + data + b"\r\n\r\n"
@@ -81,14 +82,20 @@ def NotFound(tcpSock: socket):
 
 def LoadDatas():
     global JSON_DATAS
-    with codecs.open(filename=CONFIG_FILE, mode="r", encoding="utf-8") as ifs:
-        JSON_DATAS = json.load(ifs)
+    try:
+        with codecs.open(filename=CONFIG_FILE, mode="r", encoding="utf-8") as ifs:
+            JSON_DATAS = json.load(ifs)
+    except (IOError, FileNotFoundError) as error:
+        print(error)
 
 
 def WhiteListing():
     global WHITE_LIST
-    for data in JSON_DATAS:
-        WHITE_LIST[data["allow_host"]] = data
+    try:
+        for data in JSON_DATAS:
+            WHITE_LIST[data["allow_host"]] = data
+    except (IOError, FileNotFoundError, SyntaxError, IndexError) as error:
+        print(error)
 
 
 def CheckWebsite(web: str):
@@ -120,10 +127,10 @@ def parseRequest(message: str):
     url = message.split("\r\n")[0].split()[1]
     version = message.split("\r\n")[0].split()[2]
     host = message.split("\r\n")[1].split()[1]
-    path = webServer = tmp = filename = ""
+    path = filename = ""
     if url.find("://") != -1:
         path = url.partition("://")[2]
-        webServer, tmp, file = path.partition("/")
+        file = path.partition("/")[2]
         filename = "/" + file
     return {
         "Method": method,
@@ -148,15 +155,16 @@ def saveCache(message: str, response: bytes):
     imgPath = os.path.join(CACHE_FOLDER_PATH, filePath)
     # Image extensions to .dat
     filename = os.path.basename(imgPath)
-    httpHeaderFile = filename.replace(filename.split(".")[-1], "") + "dat"
+    httpHeaderFile = filename.replace(filename.split(".")[-1], "") + "txt"
     httpHeaderPath = imgPath.replace(filename, httpHeaderFile)
 
     folder = imgPath.replace("/" + filename, "")
     if not os.path.exists(folder):
         os.makedirs(folder)
 
+    # response = httpHeader + "\r\n\r\n" + image
     httpHeader, EOL, image = response.decode("ISO-8859-1").partition("\r\n\r\n")
-
+    print("New cache.")
     with open(file=httpHeaderPath, mode="wb") as f:
         f.write(httpHeader.encode("ISO-8859-1"))
     with open(file=imgPath, mode="wb") as f:
@@ -172,18 +180,18 @@ def loadCache(message: str):
 
     if check is False:
         return False, b""
-    
+
     filePath = req["Host"] + req["File"]
     imgPath = os.path.join(CACHE_FOLDER_PATH, filePath)
     # Image extensions to .dat
     filename = os.path.basename(imgPath)
-    httpHeaderFile = filename.replace(filename.split(".")[-1], "") + "dat"
+    httpHeaderFile = filename.replace(filename.split(".")[-1], "") + "txt"
     httpHeaderPath = imgPath.replace(filename, httpHeaderFile)
 
     image = httpHeader = b""
     if os.path.exists(imgPath) is False:
         return False, image
-    if os.path.exist(httpHeaderPath) is False:
+    if os.path.exists(httpHeaderPath) is False:
         return False, httpHeader
     modifyTime = datetime.fromtimestamp(os.path.getmtime(imgPath))
     if CURRENT_DATE_TIME - modifyTime > CACHE_EXPIRATION_TIME:
@@ -193,44 +201,115 @@ def loadCache(message: str):
         image = f.read()
     with open(httpHeaderPath, "rb") as f:
         httpHeader = f.read()
-    
+
     return True, image + "\r\n\r\n" + httpHeader
+
+
+def handle_content_length(connection: socket, content_length: int):
+    data = b""
+    while len(data) < content_length:
+        chunk = connection.recv(min(content_length - len(data), MAX_RECEIVE))
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
+def handle_chunked_encoding(connection: socket):
+    data = b""
+    while True:
+        chunk_header = connection.recv(MAX_RECEIVE).decode("ISO-8859-1").strip()
+        chunk_size = int(chunk_header, 16)
+
+        if chunk_size == 0:
+            break
+
+        chunk = b""
+        while len(chunk) < chunk_size:
+            remaining_bytes = chunk_size - len(chunk)
+            chunk += connection.recv(min(remaining_bytes, MAX_RECEIVE))
+
+        data += chunk
+        # EOF
+        connection.recv(2)
+
+    return data
+
+
+# def handleMethod(message: bytes):
+#     # Load from cache
+#     if loadCache(message.decode("ISO-8859-1"))[0] is True:
+#         print("Cache loads successfully.")
+#         return loadCache(message.decode("ISO-8859-1"))[1]
+#     req = parseRequest(message.decode("ISO-8859-1"))
+
+#     # Connect to web server
+#     webServerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#     webServerSock.connect((req["Host"], HTTP_PORT))
+
+#     request = message.decode("ISO-8859-1")
+#     response = b""
+#     if request.find("Transfer-Encoding: chunked") != -1:
+#         # Use Connection: keep-alive
+#         request = request + "\r\nConnection: keep-alive\r\n\r\n"
+#         with open(file="hi.txt", mode="w") as f:
+#             f.write(request)
+#         webServerSock.send(request.encode())
+#         response = handle_chunked_encoding(webServerSock)
+#     elif request.find("Content-Length: ") != -1:
+#         # Use Connection: keep-alive
+#         tmp = request.split("Content-Length: ")[1]
+#         length = tmp.split("\r\n")[0]
+#         # request = request + "\r\nConnection: keep-alive\r\n\r\n"
+#         with open(file="hello.txt", mode="w") as f:
+#             f.write(request)
+#         webServerSock.send(request.encode())
+#         response = handle_content_length(webServerSock, int(length))
+#     else:
+#         # Use Connection: close
+#         request = request + "\r\nConnection: close\r\n\r\n"
+#         webServerSock.send(request.encode())
+
+#         blocks = []
+#         while True:
+#             mess = webServerSock.recv(MAX_RECEIVE)
+#             if not mess:
+#                 break
+#             blocks.append(mess)
+#         response = b"".join(blocks)
+
+#     saveCache(message.decode("ISO-8859-1"), response)
+#     webServerSock.close()
+#     return response
+
 
 def handleMethod(message: bytes):
     # Load from cache
-    if loadCache(message.decode("ISO-8859-1"))[0]:
-        print("Cache loads successfully")
+    if loadCache(message.decode("ISO-8859-1"))[0] is True:
+        print("Cache loads successfully.")
         return loadCache(message.decode("ISO-8859-1"))[1]
-    else:
-        print("Cache Expired!")
-
     req = parseRequest(message.decode("ISO-8859-1"))
+
+    # Connect to web server
+    webServerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    webServerSock.connect((req["Host"], HTTP_PORT))
+
     request = message.decode("ISO-8859-1")
-    # Use Connection: close 
-    if message.decode("ISO-8859-1").find("chunked") != -1:
-        request = request + "\r\nConnection: close\r\n"
+    # Use Connection: close
+    request = request + "\r\nConnection: close\r\n\r\n"
+    webServerSock.send(request.encode())
 
-        # Connect to web server
-        webServerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        webServerSock.connect((req["Host"], HTTP_PORT))
-        webServerSock.send(request.encode())
-        blocks = []
-        while True:
-            mess = webServerSock.recv(MAX_RECEIVE)
-            if not mess:
-                break
-            blocks.append(mess)
-        response = b"".join(blocks)
+    blocks = []
+    while True:
+        mess = webServerSock.recv(MAX_RECEIVE)
+        if not mess:
+            break
+        blocks.append(mess)
+    response = b"".join(blocks)
 
-        print("New cache")
-        saveCache(message.decode("ISO-8859-1"), response)
-        webServerSock.close()
-        return response
-    else:
-        # Use Connection: keep-alive    
-        print("Transfer-Encoding: chunked")
-        request = request + "\r\nConnection: close\r\n"
-
+    saveCache(message.decode("ISO-8859-1"), response)
+    webServerSock.close()
+    return response
 
 def MainProcess(tcpCliSock: socket):
     # Read a request
@@ -255,7 +334,7 @@ def MainProcess(tcpCliSock: socket):
         tcpCliSock.close()
         return
     elif CheckWebsite(req["Host"]) == 1:
-        print("This page isn't in working hours")
+        print("This page isn't in working hours.")
         NotFound(tcpCliSock)
         tcpCliSock.close()
         return
@@ -284,14 +363,13 @@ def main():
         try:
             # Create client to server
             tcpCliSock, addr = tcpSerSock.accept()
-            print()
-            print("Received connection from IP: %s - Port: %d:" % (addr[0], addr[1]))
+            print("\nReceived connection from IP: %s - Port: %d:" % (addr[0], addr[1]))
             thread = threading.Thread(target=MainProcess, args=(tcpCliSock,))
             thread.start()
             thread.join()
-        except KeyboardInterrupt:
-            print()
-            print("Disconnected.")
+        except KeyboardInterrupt as error:
+            print(error)
+            print("\nDisconnected.")
             tcpSerSock.close()
             break
 
