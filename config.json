@@ -39,14 +39,14 @@
         "allow_host": "testphp.vulnweb.com",
         "cache_expired": 15,
         "time_start": "01",
-        "time_end": "20"
+        "time_end": "24"
     },
     {   
         "id": 7,
         "allow_host": "ww12.allitebooks.com",
         "cache_expired": 15,
         "time_start": "01",
-        "time_end": "20"
+        "time_end": "24"
     },
     {   
         "id": 8,

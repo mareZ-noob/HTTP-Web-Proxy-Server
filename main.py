@@ -196,13 +196,13 @@ def loadCache(message: str):
     modifyTime = datetime.fromtimestamp(os.path.getmtime(imgPath))
     if CURRENT_DATE_TIME - modifyTime > CACHE_EXPIRATION_TIME:
         return False, b""
-
+    
     with open(imgPath, "rb") as f:
         image = f.read()
     with open(httpHeaderPath, "rb") as f:
         httpHeader = f.read()
 
-    return True, image + "\r\n\r\n" + httpHeader
+    return True, image + b"\r\n\r\n" + httpHeader
 
 
 def handle_content_length(connection: socket, content_length: int):
