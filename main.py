@@ -31,7 +31,7 @@ MAX_RECEIVE = 4096
 # Methods permission
 ALLOW_METHOD = ["GET", "POST", "HEAD"]
 
-# Images
+# Images supported
 SUPPORTED_IMAGE_EXTENSIONS = [
     "png",
     "jpg",
@@ -46,9 +46,6 @@ SUPPORTED_IMAGE_EXTENSIONS = [
     "jp2",
     "svgz",
 ]
-
-# White-listing dictionary
-WHITE_LIST = {}
 
 # Config datas
 JSON_DATAS = []
@@ -81,20 +78,12 @@ def NotFound(tcpSock: socket):
 
 
 def LoadDatas():
+    # Load json to JSON_DATAS
     global JSON_DATAS
     try:
         with codecs.open(filename=CONFIG_FILE, mode="r", encoding="utf-8") as ifs:
             JSON_DATAS = json.load(ifs)
     except (IOError, FileNotFoundError) as error:
-        print(error)
-
-
-def WhiteListing():
-    global WHITE_LIST
-    try:
-        for data in JSON_DATAS:
-            WHITE_LIST[data["allow_host"]] = data
-    except (IOError, FileNotFoundError, SyntaxError, IndexError) as error:
         print(error)
 
 
@@ -107,7 +96,9 @@ def CheckWebsite(web: str):
     if check == -1:
         return check
 
-    flag = 1  # 1 -> Deactivate server | 0 -> Activate server
+    # Variable: flag = 1 -> 403 Not Found && flag = 0 -> Normal access
+    flag = 1
+    # Loop to find time start, time end of each website
     for data in JSON_DATAS:
         if data["allow_host"] in web:
             time_start = str(data["time_start"])
@@ -119,6 +110,7 @@ def CheckWebsite(web: str):
 
 
 def parseRequest(message: str):
+    # Parse received message from client
     protocol = ""
     if message.find("http") != -1:
         protocol = "http"
@@ -145,19 +137,22 @@ def parseRequest(message: str):
 def saveCache(message: str, response: bytes):
     req = parseRequest(message)
     check = False
+    # Check supported image extensions
     for img in SUPPORTED_IMAGE_EXTENSIONS:
         if img in req["File"]:
             check = True
-
     if check is False:
         return
+
+    # Get image path and header path
     filePath = req["Host"] + req["File"]
     imgPath = os.path.join(CACHE_FOLDER_PATH, filePath)
-    # Image extensions to .dat
+    # Header to .txt
     filename = os.path.basename(imgPath)
     httpHeaderFile = filename.replace(filename.split(".")[-1], "") + "txt"
     httpHeaderPath = imgPath.replace(filename, httpHeaderFile)
 
+    # Create folder for image file and header file
     folder = imgPath.replace("/" + filename, "")
     if not os.path.exists(folder):
         os.makedirs(folder)
@@ -174,29 +169,32 @@ def saveCache(message: str, response: bytes):
 def loadCache(message: str):
     req = parseRequest(message)
     check = False
+    # Check supported image extensions
     for img in SUPPORTED_IMAGE_EXTENSIONS:
         if img in req["File"]:
             check = True
-
     if check is False:
         return False, b""
 
+    # Get image path and header path
     filePath = req["Host"] + req["File"]
     imgPath = os.path.join(CACHE_FOLDER_PATH, filePath)
-    # Image extensions to .dat
+    # Header to .txt
     filename = os.path.basename(imgPath)
     httpHeaderFile = filename.replace(filename.split(".")[-1], "") + "txt"
     httpHeaderPath = imgPath.replace(filename, httpHeaderFile)
 
+    # Check if it exists cache images
     image = httpHeader = b""
     if os.path.exists(imgPath) is False:
         return False, image
     if os.path.exists(httpHeaderPath) is False:
         return False, httpHeader
     modifyTime = datetime.fromtimestamp(os.path.getmtime(imgPath))
+    # Expired cache images
     if CURRENT_DATE_TIME - modifyTime > CACHE_EXPIRATION_TIME:
         return False, b""
-    
+    # Read cache images and header
     with open(imgPath, "rb") as f:
         image = f.read()
     with open(httpHeaderPath, "rb") as f:
@@ -252,19 +250,23 @@ def handle_chunked_encoding(connection: socket):
 #     if request.find("Transfer-Encoding: chunked") != -1:
 #         # Use Connection: keep-alive
 #         request = request + "\r\nConnection: keep-alive\r\n\r\n"
+#         webServerSock.send(request.encode())
+
 #         with open(file="hi.txt", mode="w") as f:
 #             f.write(request)
-#         webServerSock.send(request.encode())
 #         response = handle_chunked_encoding(webServerSock)
 #     elif request.find("Content-Length: ") != -1:
 #         # Use Connection: keep-alive
+#         request = request + "\r\nConnection: keep-alive\r\n\r\n"
+#         webServerSock.send(request.encode())
+
 #         tmp = request.split("Content-Length: ")[1]
 #         length = tmp.split("\r\n")[0]
-#         # request = request + "\r\nConnection: keep-alive\r\n\r\n"
+#         response = handle_content_length(webServerSock, int(length))
 #         with open(file="hello.txt", mode="w") as f:
 #             f.write(request)
-#         webServerSock.send(request.encode())
-#         response = handle_content_length(webServerSock, int(length))
+#         with open(file="h.txt", mode="wb") as f:
+#             f.write(response)
 #     else:
 #         # Use Connection: close
 #         request = request + "\r\nConnection: close\r\n\r\n"
@@ -284,7 +286,7 @@ def handle_chunked_encoding(connection: socket):
 
 
 def handleMethod(message: bytes):
-    # Load from cache
+    # Load cache images
     if loadCache(message.decode("ISO-8859-1"))[0] is True:
         print("Cache loads successfully.")
         return loadCache(message.decode("ISO-8859-1"))[1]
@@ -311,8 +313,10 @@ def handleMethod(message: bytes):
     webServerSock.close()
     return response
 
+
+# Proxy
 def MainProcess(tcpCliSock: socket):
-    # Read a request
+    # Receive a message from client
     message = tcpCliSock.recv(MAX_RECEIVE)
 
     if message == b"":
@@ -323,11 +327,11 @@ def MainProcess(tcpCliSock: socket):
     for key, value in req.items():
         print(key, ":", value)
 
+    # Check method
     if req["Method"] not in ALLOW_METHOD:
         NotFound(tcpCliSock)
         tcpCliSock.close()
         return
-
     if CheckWebsite(req["Host"]) == -1:
         print("You don't currently have permission to access this page.")
         NotFound(tcpCliSock)
@@ -339,15 +343,17 @@ def MainProcess(tcpCliSock: socket):
         tcpCliSock.close()
         return
 
+    # Reply to client
     response = handleMethod(message)
     tcpCliSock.sendall(response)
     tcpCliSock.close()
 
 
 def main():
+    # Create cache folder
     if not os.path.exists(CACHE_DIRECTORY):
         os.makedirs(CACHE_DIRECTORY)
-    # Create server
+    # Create a server
     tcpSerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     tcpSerSock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     tcpSerSock.bind((PROXY_HOST, PROXY_PORT))
@@ -356,14 +362,12 @@ def main():
     # Load datas
     LoadDatas()
 
-    # Create white listing host
-    WhiteListing()
-
     while True:
         try:
             # Create client to server
             tcpCliSock, addr = tcpSerSock.accept()
             print("\nReceived connection from IP: %s - Port: %d:" % (addr[0], addr[1]))
+            # Create threading
             thread = threading.Thread(target=MainProcess, args=(tcpCliSock,))
             thread.start()
             thread.join()
