@@ -153,7 +153,7 @@ def saveCache(message: str, response: bytes):
 
     # Check supported image extensions
     for img in SUPPORTED_IMAGE_EXTENSIONS:
-        if img in req["File"]:
+        if req["File"].find(img) != -1:
             check = True
     if check is False:
         return
@@ -175,10 +175,13 @@ def saveCache(message: str, response: bytes):
     # Idea: response = httpHeader + "\r\n\r\n" + image
     httpHeader, eol2, image = response.decode("ISO-8859-1").partition("\r\n\r\n")
     print(f"{bcolors.green}[*] New cache.{bcolors.reset}")
-    with open(file=httpHeaderPath, mode="wb") as f:
-        f.write(httpHeader.encode("ISO-8859-1"))
-    with open(file=imgPath, mode="wb") as f:
-        f.write(image.encode("ISO-8859-1"))
+    try:
+        with open(file=httpHeaderPath, mode="wb") as f:
+            f.write(httpHeader.encode("ISO-8859-1"))
+        with open(file=imgPath, mode="wb") as f:
+            f.write(image.encode("ISO-8859-1"))
+    except (OSError, IOError) as error:
+        print(error)
 
 
 def loadCache(message: str):
@@ -187,7 +190,7 @@ def loadCache(message: str):
 
     # Check supported image extensions
     for img in SUPPORTED_IMAGE_EXTENSIONS:
-        if img in req["File"]:
+        if req["File"].find(img) != -1:
             check = True
     if check is False:
         return False, b""
@@ -214,10 +217,13 @@ def loadCache(message: str):
         return False, b""
 
     # Read cache images and header
-    with open(imgPath, "rb") as f:
-        image = f.read()
-    with open(httpHeaderPath, "rb") as f:
-        httpHeader = f.read()
+    try:
+        with open(imgPath, "rb") as f:
+            image = f.read()
+        with open(httpHeaderPath, "rb") as f:
+            httpHeader = f.read()
+    except (OSError, IOError) as error:
+        print(error)
 
     return True, image + b"\r\n\r\n" + httpHeader
 
@@ -281,6 +287,37 @@ def handleMethod(message: bytes):
     saveCache(message.decode("ISO-8859-1"), full_response)
     webServerSock.close()
     return full_response
+
+
+# For Connection: close
+
+# def handleMethod(message: bytes):
+#     # Load cache images
+#     if loadCache(message.decode("ISO-8859-1"))[0] is True:
+#         print("Cache loads successfully.")
+#         return loadCache(message.decode("ISO-8859-1"))[1]
+#     req = parseRequest(message.decode("ISO-8859-1"))
+
+#     # Connect to web server
+#     webServerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#     webServerSock.connect((req["Host"], HTTP_PORT))
+
+#     request = message.decode("ISO-8859-1")
+#     # Use Connection: close
+#     request = request + "\r\nConnection: close\r\n\r\n"
+#     webServerSock.send(request.encode())
+
+#     blocks = []
+#     while True:
+#         mess = webServerSock.recv(MAX_RECEIVE)
+#         if not mess:
+#             break
+#         blocks.append(mess)
+#     response = b"".join(blocks)
+
+#     saveCache(message.decode("ISO-8859-1"), response)
+#     webServerSock.close()
+#     return response
 
 
 # Proxy
