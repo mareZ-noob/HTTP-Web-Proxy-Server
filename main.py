@@ -229,13 +229,15 @@ def loadCache(message: str):
 
 
 def handleMethod(message: bytes):
-    # Load from cache
+    # Check wether the file exist in the cache
+    # ProxyServer finds a cache hit and generates a response message
     if loadCache(message.decode("ISO-8859-1"))[0] is True:
         print(f"{bcolors.green}[*] Cache loads successfully.{bcolors.reset}")
         return loadCache(message.decode("ISO-8859-1"))[1]
     req = parseRequest(message.decode("ISO-8859-1"))
 
-    # Connect to web server
+    # Create a socket on the proxyserver
+    # Connect to the socket to port 80
     webServerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     webServerSock.connect((req["Host"], HTTP_PORT))
 
@@ -284,6 +286,7 @@ def handleMethod(message: bytes):
                 break
         full_response = response + data
 
+    # Create a new file in the cache for the requested file.
     saveCache(message.decode("ISO-8859-1"), full_response)
     webServerSock.close()
     return full_response
@@ -364,7 +367,7 @@ def main():
     if not os.path.exists(CACHE_DIRECTORY):
         os.makedirs(CACHE_DIRECTORY)
 
-    # Create a server
+    # Create a server socket, bind it to a port and start listening
     tcpSerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     tcpSerSock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     tcpSerSock.bind((PROXY_HOST, PROXY_PORT))
@@ -375,10 +378,11 @@ def main():
 
     while True:
         try:
-            # Create client to server
+            # Start receiving data from the client
+            print(f"\n{bcolors.green}Ready to serve...{bcolors.reset}")
             tcpCliSock, addr = tcpSerSock.accept()
             print(
-                f"\n{bcolors.yellow}[*] Received connection from IP: %s - Port: %d:{bcolors.reset}"
+                f"{bcolors.yellow}[*] Received connection from IP: %s - Port: %d:{bcolors.reset}"
                 % (addr[0], addr[1])
             )
 
@@ -389,6 +393,7 @@ def main():
         except KeyboardInterrupt as error:
             print(error)
             print(f"\n{bcolors.red}[*] Disconnected.{bcolors.reset}")
+            # Close the client and the server sockets
             tcpSerSock.close()
             break
 
