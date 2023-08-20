@@ -8,5 +8,5 @@
 ### Executing program
 * How to run the program
 ```
-    python3 main.py || python main.py
+python3 main.py || python main.py
 ```
